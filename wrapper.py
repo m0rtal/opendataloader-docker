@@ -1,87 +1,72 @@
-import os
-import tempfile
+import os, tempfile, json
 from pathlib import Path
-from typing import Optional
-
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, File, Form, UploadFile
 from pydantic import BaseModel
+import requests
 
 app = FastAPI(title="OpenDataLoader PDF Sidecar")
-
 HYBRID_PORT = int(os.environ.get("HYBRID_PORT", "5002"))
 HYBRID_URL = f"http://localhost:{HYBRID_PORT}"
-
-class ExtractRequest(BaseModel):
-    path: str
-    format: str = "markdown"
-    ocr_lang: str = "rus,eng"
-    hybrid: bool = True
 
 class ExtractResponse(BaseModel):
     success: bool
     format: str
     content: str
-    pages: Optional[int] = None
-    error: Optional[str] = None
+    pages: int | None = None
+    error: str | None = None
 
 @app.get("/health")
 def health():
     return {"status": "ok", "hybrid_port": HYBRID_PORT}
 
-@app.post("/extract", response_model=ExtractResponse)
-def extract(req: ExtractRequest):
-    import opendataloader_pdf
-    path = Path(req.path)
-    if not path.exists():
-        return ExtractResponse(success=False, format=req.format, content="", error=f"File not found: {req.path}")
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            kwargs = {
-                "input_path": [str(path)],
-                "output_dir": tmpdir,
-                "format": req.format,
-            }
-            if req.hybrid:
-                kwargs["hybrid"] = "docling-fast"
-                kwargs["hybrid_url"] = HYBRID_URL
-                kwargs["hybrid_mode"] = "auto"
-            opendataloader_pdf.convert(**kwargs)
-            out_files = list(Path(tmpdir).glob("*.*"))
-            if not out_files:
-                return ExtractResponse(success=False, format=req.format, content="", error="No output generated")
-            content = out_files[0].read_text(encoding="utf-8", errors="replace")
-            pages = content.count("\n---\n") + 1 if req.format == "markdown" else None
-            return ExtractResponse(success=True, format=req.format, content=content, pages=pages)
-    except Exception as e:
-        return ExtractResponse(success=False, format=req.format, content="", error=str(e)[:500])
+def _extract_all_texts(node, texts):
+    """Recursively collect all text/content strings from docling JSON."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("text", "content") and isinstance(v, str) and v.strip():
+                texts.append(v)
+            else:
+                _extract_all_texts(v, texts)
+    elif isinstance(node, list):
+        for item in node:
+            _extract_all_texts(item, texts)
+
+def extract_text_from_docling(data: dict) -> str:
+    texts = []
+    doc = data.get("document") or data
+    if isinstance(doc, dict):
+        jc = doc.get("json_content")
+        if isinstance(jc, dict):
+            _extract_all_texts(jc, texts)
+        else:
+            _extract_all_texts(doc, texts)
+    if not texts:
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    return "\n\n".join(texts)
 
 @app.post("/extract_file", response_model=ExtractResponse)
 async def extract_file(
     file: UploadFile = File(...),
     format: str = Form("markdown"),
-    ocr_lang: str = Form("rus,eng"),
-    hybrid: bool = Form(True),
+    ocr_lang: str = Form("ru,en"),
+    hybrid_mode: str = Form("auto"),
 ):
-    import opendataloader_pdf
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            in_path = Path(tmpdir) / (file.filename or "upload.pdf")
-            in_path.write_bytes(await file.read())
-            kwargs = {
-                "input_path": [str(in_path)],
-                "output_dir": tmpdir,
-                "format": format,
-            }
-            if hybrid:
-                kwargs["hybrid"] = "docling-fast"
-                kwargs["hybrid_url"] = HYBRID_URL
-                kwargs["hybrid_mode"] = "auto"
-            opendataloader_pdf.convert(**kwargs)
-            out_files = list(Path(tmpdir).glob("*.*"))
-            if not out_files:
-                return ExtractResponse(success=False, format=format, content="", error="No output generated")
-            content = out_files[0].read_text(encoding="utf-8", errors="replace")
-            pages = content.count("\n---\n") + 1 if format == "markdown" else None
-            return ExtractResponse(success=True, format=format, content=content, pages=pages)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+        with open(tmp_path, "rb") as f:
+            resp = requests.post(
+                f"{HYBRID_URL}/v1/convert/file",
+                files={"files": f},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        if data.get("status") == "failure":
+            return ExtractResponse(success=False, format=format, content="",
+                error=json.dumps(data.get("errors", ["Unknown error"])))
+        content = extract_text_from_docling(data)
+        return ExtractResponse(success=True, format="markdown", content=content, pages=1)
     except Exception as e:
         return ExtractResponse(success=False, format=format, content="", error=str(e)[:500])
