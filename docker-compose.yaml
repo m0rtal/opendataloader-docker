@@ -11,7 +11,6 @@ services:
       - "8081:8080"
       - "5002:5002"
     volumes:
-      - /mnt/storage/Learning:/mnt/storage/Learning:ro
       - ./logs:/tmp/opendataloader
     environment:
       - HYBRID_PORT=5002
