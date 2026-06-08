@@ -24,4 +24,4 @@ ENV PATH="/app/venv/bin:$PATH"
 ENV HYBRID_PORT=5002
 ENV HYBRID_OCR_LANG=rus,eng
 
-CMD ["sh", "-c", "opendataloader-pdf-hybrid --port ${HYBRID_PORT} --force-ocr --ocr-lang ${HYBRID_OCR_LANG} & sleep 10 && uvicorn wrapper:app --host 0.0.0.0 --port 8080"]
+CMD ["sh", "-c", "opendataloader-pdf-hybrid --port ${HYBRID_PORT} --ocr-lang ${HYBRID_OCR_LANG} & sleep 10 && uvicorn wrapper:app --host 0.0.0.0 --port 8080"]
