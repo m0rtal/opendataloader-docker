@@ -1,12 +1,18 @@
-import os, tempfile, json
-from pathlib import Path
+from surya.ocr import run_ocr
+from surya.model.detection.model import load_model as load_det_model, load_processor as load_det_processor
+from surya.model.recognition.model import load_model as load_rec_model
+from surya.model.recognition.processor import load_processor as load_rec_processor
+from PIL import Image
+import fitz  # PyMuPDF
+import tempfile
 from fastapi import FastAPI, File, Form, UploadFile
 from pydantic import BaseModel
-import requests
 
-app = FastAPI(title="OpenDataLoader PDF Sidecar")
-HYBRID_PORT = int(os.environ.get("HYBRID_PORT", "5002"))
-HYBRID_URL = f"http://localhost:{HYBRID_PORT}"
+app = FastAPI(title="OpenDataLoader PDF OCR Sidecar (Surya)")
+
+# Load Surya models once at startup
+det_processor, det_model = load_det_processor(), load_det_model()
+rec_model, rec_processor = load_rec_model(), load_rec_processor()
 
 class ExtractResponse(BaseModel):
     success: bool
@@ -17,32 +23,7 @@ class ExtractResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "hybrid_port": HYBRID_PORT}
-
-def _extract_all_texts(node, texts):
-    """Recursively collect all text/content strings from docling JSON."""
-    if isinstance(node, dict):
-        for k, v in node.items():
-            if k in ("text", "content") and isinstance(v, str) and v.strip():
-                texts.append(v)
-            else:
-                _extract_all_texts(v, texts)
-    elif isinstance(node, list):
-        for item in node:
-            _extract_all_texts(item, texts)
-
-def extract_text_from_docling(data: dict) -> str:
-    texts = []
-    doc = data.get("document") or data
-    if isinstance(doc, dict):
-        jc = doc.get("json_content")
-        if isinstance(jc, dict):
-            _extract_all_texts(jc, texts)
-        else:
-            _extract_all_texts(doc, texts)
-    if not texts:
-        return json.dumps(data, ensure_ascii=False, indent=2)
-    return "\n\n".join(texts)
+    return {"status": "ok", "ocr": "surya", "langs": "multi"}
 
 @app.post("/extract_file", response_model=ExtractResponse)
 async def extract_file(
@@ -55,18 +36,27 @@ async def extract_file(
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
-        with open(tmp_path, "rb") as f:
-            resp = requests.post(
-                f"{HYBRID_URL}/v1/convert/file",
-                files={"files": f},
-                timeout=120,
+
+        doc = fitz.open(tmp_path)
+        texts = []
+        langs = ocr_lang.replace("+", ",").split(",")
+        langs = [l.strip() for l in langs if l.strip()]
+
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=300)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            predictions = run_ocr(
+                [img],
+                [langs],
+                det_model, det_processor,
+                rec_model, rec_processor
             )
-            resp.raise_for_status()
-            data = resp.json()
-        if data.get("status") == "failure":
-            return ExtractResponse(success=False, format=format, content="",
-                error=json.dumps(data.get("errors", ["Unknown error"])))
-        content = extract_text_from_docling(data)
-        return ExtractResponse(success=True, format="markdown", content=content, pages=1)
+            page_text = "\n".join([line.text for line in predictions[0].text_lines])
+            texts.append(page_text)
+
+        content = "\n\n".join(texts)
+        return ExtractResponse(success=True, format="markdown", content=content, pages=len(doc))
     except Exception as e:
         return ExtractResponse(success=False, format=format, content="", error=str(e)[:500])

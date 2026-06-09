@@ -1,23 +1,22 @@
-FROM eclipse-temurin:17-jre
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip python3-venv \
     libgl1 libglib2.0-0 \
+    libjpeg-dev zlib1g-dev libpng-dev \
+    libfreetype6-dev liblcms2-dev libopenjp2-7-dev \
+    libtiff-dev libwebp-dev tcl-dev tk-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN python3 -m venv /app/venv
-RUN /app/venv/bin/pip install --upgrade pip
-RUN /app/venv/bin/pip install "opendataloader-pdf[hybrid]" fastapi uvicorn python-multipart
+RUN pip install --no-cache-dir \
+    surya-ocr pymupdf fastapi uvicorn python-multipart pillow
 
 COPY wrapper.py /app/wrapper.py
 COPY start.sh /app/start.sh
 
-EXPOSE 8080 5002
+EXPOSE 8080
 
-ENV PATH="/app/venv/bin:$PATH"
-ENV HYBRID_PORT=5002
-ENV HYBRID_OCR_LANG=ru,en
+ENV PATH="/usr/local/bin:$PATH"
 
 CMD ["sh", "/app/start.sh"]
