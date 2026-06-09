@@ -26,6 +26,14 @@ def _is_junk(text: str) -> bool:
     # Discard strings that contain only punctuation/numbers/whitespace
     if all(c in "0123456789.,;:!?\"'\u2013\u2014 \t\n\r" for c in text):
         return True
+    # Discard strings where same char repeats 3+ times consecutively
+    import re
+    if re.search(r'([a-zA-Zа-яА-Я])\1{3,}', text):
+        return True
+    # Discard if only unique char (very narrow alphabet like only 'n', only ':', etc.)
+    unique_chars = set(text.lower().strip())
+    if len(unique_chars) <= 2:
+        return True
     return False
 
 def _extract_all_texts(node, texts):
