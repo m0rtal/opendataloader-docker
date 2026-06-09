@@ -19,11 +19,20 @@ class ExtractResponse(BaseModel):
 def health():
     return {"status": "ok", "hybrid_port": HYBRID_PORT}
 
+def _is_junk(text: str) -> bool:
+    """Filter noise/spurious short fragments from docling JSON."""
+    if len(text) < 3:
+        return True
+    # Discard strings that contain only punctuation/numbers/whitespace
+    if all(c in "0123456789.,;:!?\"'\u2013\u2014 \t\n\r" for c in text):
+        return True
+    return False
+
 def _extract_all_texts(node, texts):
     """Recursively collect all text/content strings from docling JSON."""
     if isinstance(node, dict):
         for k, v in node.items():
-            if k in ("text", "content") and isinstance(v, str) and v.strip():
+            if k in ("text", "content") and isinstance(v, str) and v.strip() and not _is_junk(v):
                 texts.append(v)
             else:
                 _extract_all_texts(v, texts)

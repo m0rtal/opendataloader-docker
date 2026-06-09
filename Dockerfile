@@ -10,6 +10,8 @@ WORKDIR /app
 
 RUN python3 -m venv /app/venv
 RUN /app/venv/bin/pip install --upgrade pip
+# CPU-only torch: предотвращаем загрузку огромных CUDA-wheels (~1.5GB)
+RUN /app/venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN /app/venv/bin/pip install "opendataloader-pdf[hybrid]" fastapi uvicorn python-multipart
 
 COPY wrapper.py /app/wrapper.py

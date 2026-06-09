@@ -11,7 +11,7 @@ services:
       - "8081:8080"
       - "5002:5002"
     volumes:
-      - ./logs:/tmp/opendataloader
+      - opendataloader_logs:/tmp/opendataloader
     environment:
       - HYBRID_PORT=5002
       - HYBRID_OCR_LANG=ru,en
@@ -21,3 +21,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    networks:
+      - opendataloader
+
+volumes:
+  opendataloader_logs:
+
+networks:
+  opendataloader:
+    driver: bridge

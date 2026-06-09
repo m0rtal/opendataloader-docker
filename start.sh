@@ -4,7 +4,7 @@ export MKL_NUM_THREADS=4
 export OPENBLAS_NUM_THREADS=4
 export TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
 
-opendataloader-pdf-hybrid --port 5002 --hybrid-mode auto --ocr-lang "rus,eng" --device cpu &
+opendataloader-pdf-hybrid --port 5002 --ocr-engine tesseract --ocr-lang "rus,eng" --device cpu &
 sleep 10
 
 cd /app
