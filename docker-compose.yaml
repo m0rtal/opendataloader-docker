@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   opendataloader-hybrid:
-    image: opendataloader:fixed
+    image: ghcr.io/m0rtal/opendataloader-docker:latest
     container_name: opendataloader-hybrid
     restart: unless-stopped
     ports:
