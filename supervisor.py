@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, signal, subprocess, sys, time
+import os, signal, subprocess, sys, time, threading, requests
 
 def reap(signum, frame):
     while True:
@@ -35,6 +35,41 @@ backend = subprocess.Popen(backend_cmd, env=env, stdout=sys.stdout, stderr=sys.s
 time.sleep(10)
 
 proxy = subprocess.Popen(proxy_cmd, cwd="/app", stdout=sys.stdout, stderr=sys.stderr)
+
+def _backend_alive() -> bool:
+    try:
+        r = requests.get("http://localhost:5002/v1/health", timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def _restart_backend():
+    global backend
+    print("HEALTHCHECK: Backend unresponsive, killing and restarting...", flush=True)
+    try:
+        backend.kill()
+        backend.wait(timeout=5)
+    except Exception:
+        pass
+    backend = subprocess.Popen(backend_cmd, env=env, stdout=sys.stdout, stderr=sys.stderr)
+    time.sleep(5)
+    print(f"HEALTHCHECK: Backend restarted (pid={backend.pid})", flush=True)
+
+def health_monitor():
+    failures = 0
+    while True:
+        time.sleep(30)
+        if _backend_alive():
+            failures = 0
+            continue
+        failures += 1
+        print(f"HEALTHCHECK: Backend not responding (failure {failures}/3)", flush=True)
+        if failures >= 3:
+            _restart_backend()
+            failures = 0
+
+monitor = threading.Thread(target=health_monitor, daemon=True)
+monitor.start()
 
 while True:
     backend_status = backend.poll()

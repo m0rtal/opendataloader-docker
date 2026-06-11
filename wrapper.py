@@ -1,8 +1,7 @@
-import os, tempfile, json
+import os, tempfile, json, requests
 from pathlib import Path
 from fastapi import FastAPI, File, Form, UploadFile
 from pydantic import BaseModel
-import requests
 
 app = FastAPI(title="OpenDataLoader PDF Sidecar")
 HYBRID_PORT = int(os.environ.get("HYBRID_PORT", "5002"))
@@ -17,7 +16,13 @@ class ExtractResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "hybrid_port": HYBRID_PORT}
+    try:
+        r = requests.get(f"{HYBRID_URL}/v1/health", timeout=5)
+        if r.status_code == 200:
+            return {"status": "ok", "hybrid_port": HYBRID_PORT}
+    except Exception:
+        pass
+    return {"status": "error", "hybrid_port": HYBRID_PORT, "detail": "backend unreachable"}, 503
 
 def _is_junk(text: str) -> bool:
     """Filter noise/spurious short fragments from docling JSON."""
