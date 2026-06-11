@@ -76,7 +76,7 @@ async def extract_file(
             resp = requests.post(
                 f"{HYBRID_URL}/v1/convert/file",
                 files={"files": f},
-                timeout=300,
+                timeout=1200,
             )
             resp.raise_for_status()
             data = resp.json()
