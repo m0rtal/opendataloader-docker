@@ -14,7 +14,12 @@ RUN /app/venv/bin/pip install --upgrade pip
 RUN /app/venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN /app/venv/bin/pip install "opendataloader-pdf[hybrid]" fastapi uvicorn python-multipart
 
+# Pre-download docling models to avoid runtime HF downloads
+COPY predownload_models.py /app/predownload_models.py
+RUN /app/venv/bin/python3 /app/predownload_models.py || echo "WARNING: Could not pre-download models"
+
 COPY wrapper.py /app/wrapper.py
+COPY supervisor.py /app/supervisor.py
 COPY start.sh /app/start.sh
 
 EXPOSE 8080 5002
@@ -23,4 +28,4 @@ ENV PATH="/app/venv/bin:$PATH"
 ENV HYBRID_PORT=5002
 ENV HYBRID_OCR_LANG=ru,en
 
-CMD ["sh", "/app/start.sh"]
+CMD ["python3", "/app/supervisor.py"]
