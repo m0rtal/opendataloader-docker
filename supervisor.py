@@ -55,6 +55,45 @@ def _restart_backend():
     time.sleep(5)
     print(f"HEALTHCHECK: Backend restarted (pid={backend.pid})", flush=True)
 
+def _get_cpu_time(pid):
+    """Return cumulative CPU time (user+system) in seconds from /proc/pid/stat."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            parts = f.read().split()
+        # utime is field 14, stime is field 15 (0-indexed: 13, 14)
+        clk_tck = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+        utime = int(parts[13])
+        stime = int(parts[14])
+        return (utime + stime) / clk_tck
+    except Exception:
+        return None
+
+def hang_monitor():
+    """Watchdog: if backend CPU time stalls for 60s while process stays alive, kill it."""
+    stall_seconds = 0
+    last_cpu = None
+    while True:
+        time.sleep(10)
+        pid = backend.pid
+        cpu = _get_cpu_time(pid)
+        if cpu is None:
+            stall_seconds = 0
+            last_cpu = None
+            continue
+        if last_cpu is not None and cpu == last_cpu:
+            stall_seconds += 10
+            if stall_seconds >= 60:
+                print(f"HANG DETECTED: backend pid={pid} CPU stalled for {stall_seconds}s, killing...", flush=True)
+                _restart_backend()
+                stall_seconds = 0
+                last_cpu = None
+        else:
+            stall_seconds = 0
+            last_cpu = cpu
+
+hang_thread = threading.Thread(target=hang_monitor, daemon=True)
+hang_thread.start()
+
 def health_monitor():
     failures = 0
     while True:
